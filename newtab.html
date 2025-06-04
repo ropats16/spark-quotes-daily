@@ -13,15 +13,23 @@
         overflow: hidden;
         font-family: Helvetica, Arial, sans-serif;
         color: white;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+      }
+
+      /* 1) Background DIV: immediately fills screen, brightened for contrast */
+      .background {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
         background-size: cover;
         background-position: center;
         background-repeat: no-repeat;
+        z-index: -2;
+        filter: brightness(1.1);
       }
 
-      /* Slight overlay so white text is legible */
+      /* 2) Overlay on top: slightly darkens everything behind for text legibility */
       .overlay {
         position: absolute;
         top: 0;
@@ -30,15 +38,19 @@
         height: 100%;
         background: rgba(0, 0, 0, 0.35);
         pointer-events: none;
-        z-index: 1;
+        z-index: -1;
       }
 
+      /* 3) Quote container: sits above both background and overlay */
       .quote-box {
         position: relative;
-        z-index: 2;
+        z-index: 1;
         text-align: center;
         padding: 2rem;
         max-width: 80%;
+        margin: 0 auto;
+        top: 50%;
+        transform: translateY(-50%);
       }
 
       .quote-text {
@@ -56,7 +68,7 @@
         text-shadow: 1px 1px 6px rgba(0, 0, 0, 0.75);
       }
 
-      /* Unsplash credit link (optional) */
+      /* 4) Photographer credit: bottom‐right corner */
       .credit {
         position: absolute;
         bottom: 10px;
@@ -64,24 +76,27 @@
         font-size: 0.75rem;
         color: rgba(255, 255, 255, 0.7);
         text-decoration: none;
-        z-index: 3;
+        z-index: 1;
       }
     </style>
   </head>
   <body>
-    <!-- Dark overlay -->
+    <!-- Make sure this is the very first thing in <body> -->
+    <div id="bgDiv" class="background"></div>
+
+    <!-- Overlay on top of the background -->
     <div class="overlay"></div>
 
-    <!-- Quote container -->
+    <!-- Quote content -->
     <div class="quote-box">
-      <div id="quoteText" class="quote-text">Loading…</div>
+      <div id="quoteText" class="quote-text"></div>
       <div id="quoteAuthor" class="quote-author"></div>
     </div>
 
-    <!-- Optional photographer credit -->
+    <!-- Photo credit link -->
     <a id="unsplashCredit" class="credit" target="_blank" rel="noopener"></a>
 
-    <!-- Load the new-tab JavaScript -->
+    <!-- Load your script last -->
     <script src="newtab.js"></script>
   </body>
 </html>
