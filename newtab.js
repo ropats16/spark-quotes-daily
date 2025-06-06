@@ -1,19 +1,31 @@
 // newtab.js
 
-// 1. Local quotes.json inside the extension
+// ─────────────────────────────────────────────────────────────────────────────
+// 1) Local quotes.json inside the extension
+//    Used for randomly picking a quote on each new tab
+// ─────────────────────────────────────────────────────────────────────────────
 const QUOTES_URL = chrome.runtime.getURL("quotes.json");
 
-// 2. Your Worker’s published URL (for Unsplash JSON API)
+// ─────────────────────────────────────────────────────────────────────────────
+// 2) Your Cloudflare Worker’s published URL (for Unsplash JSON API)
+//    Replace this placeholder with your real worker URL
+// ─────────────────────────────────────────────────────────────────────────────
 const PROXY_URL = "https://sqd-unsplash-proxy.sqd-unsplash-proxy.workers.dev";
 
-// 3. Three preloaded images (bundled in /preloaded/)
+// ─────────────────────────────────────────────────────────────────────────────
+// 3) Three preloaded images (bundled inside the extension under /preloaded/)
+//    These are painted immediately so the user never sees gray.
+// ─────────────────────────────────────────────────────────────────────────────
 const PRELOADED_IMAGES = [
   chrome.runtime.getURL("preloaded/img1.jpg"),
   chrome.runtime.getURL("preloaded/img2.jpg"),
   chrome.runtime.getURL("preloaded/img3.jpg"),
 ];
 
-// 4. Themed keywords for Unsplash backgrounds
+// ─────────────────────────────────────────────────────────────────────────────
+// 4) Themed keywords for Unsplash backgrounds
+//    We will randomly pick one keyword each time we fetch a new batch of 10 images.
+// ─────────────────────────────────────────────────────────────────────────────
 const IMAGE_KEYWORDS = [
   "grand canyon sunset",
   "machu picchu sunrise",
@@ -46,156 +58,300 @@ const IMAGE_KEYWORDS = [
   "foggy bridge with dramatic lighting",
 ];
 
-// 5. Cache keys and config
-const CACHE_KEY = "sq_image_cache"; // Array of { url, photographer, profile }
-const CACHE_TIMESTAMP_KEY = "sq_image_cache_time"; // Epoch ms when last fetched
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours in ms
-const BATCH_SIZE = 5; // Prefetch 5 images at a time
+// ─────────────────────────────────────────────────────────────────────────────
+// 5) localStorage keys & cache configuration
+//    We want to keep up to `TARGET_CACHE_SIZE` images cached at any given time.
+//    Every `CACHE_REFRESH_INTERVAL` (4 hours), we fetch a brand‐new batch.
+// ─────────────────────────────────────────────────────────────────────────────
+const CACHE_KEY = "sq_image_cache"; // localStorage: array of {url, photographer, profile}
+const CACHE_TIMESTAMP_KEY = "sq_image_cache_time"; // localStorage: ms since epoch when last fetched
+const TARGET_CACHE_SIZE = 10; // Request 10 images at once
+const CACHE_REFRESH_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours (milliseconds)
+const CACHE_TTL = CACHE_REFRESH_INTERVAL; // After 4h, the batch is stale
 
-// 6. DOM references
+// ─────────────────────────────────────────────────────────────────────────────
+// 6) DOM references
+// ─────────────────────────────────────────────────────────────────────────────
 const bgDiv = document.getElementById("bgDiv");
 const quoteTextEl = document.getElementById("quoteText");
 const quoteAuthorEl = document.getElementById("quoteAuthor");
 const unsplashCreditEl = document.getElementById("unsplashCredit");
 
-// 7. Utility: pick a random quote from the loaded array
+// ─────────────────────────────────────────────────────────────────────────────
+// 7) Helper: pick a random quote from quotesArray
+// ─────────────────────────────────────────────────────────────────────────────
 function pickRandomQuote(quotesArray) {
   const idx = Math.floor(Math.random() * quotesArray.length);
   return quotesArray[idx];
 }
 
-// 8. Utility: pick a random Unsplash keyword
+// ─────────────────────────────────────────────────────────────────────────────
+// 8) Helper: pick a random Unsplash keyword from IMAGE_KEYWORDS
+// ─────────────────────────────────────────────────────────────────────────────
 function pickRandomKeyword() {
   return IMAGE_KEYWORDS[Math.floor(Math.random() * IMAGE_KEYWORDS.length)];
 }
 
-// 9. Fallback gradient (if everything else fails)
+// ─────────────────────────────────────────────────────────────────────────────
+// 9) Fallback gradient if no images can be loaded at all
+// ─────────────────────────────────────────────────────────────────────────────
 function applyGradientFallback() {
   bgDiv.style.backgroundImage =
     "linear-gradient(135deg, #A3BFFA 0%, #667EEA 100%)";
 }
 
-// 10. Fetch ONE Unsplash photo via your Worker
-//    Returns a promise resolving to {url, photographer, profile} or null on failure
-function fetchSingleImage() {
+// ─────────────────────────────────────────────────────────────────────────────
+// 10) Fetch a _BATCH_ of Unsplash photos via your Worker
+//
+//     We call: GET `${PROXY_URL}/?keyword=<someKeyword>&count=<TARGET_CACHE_SIZE>`
+//     Unsplash returns an array of up to <count> photo objects.
+//     We transform those into { url, photographer, profile } and return that array.
+// ─────────────────────────────────────────────────────────────────────────────
+async function fetchBatchImages(count) {
+  // 10a) Pick a single random keyword for the entire batch
   const keyword = pickRandomKeyword();
-  const workerURL = `${PROXY_URL}/?keyword=${encodeURIComponent(keyword)}`;
-  return fetch(workerURL)
-    .then((res) => {
-      if (!res.ok) throw new Error("Worker returned " + res.status);
-      return res.json();
-    })
-    .then((data) => {
-      if (data && data.urls && data.urls.full && data.user) {
-        return {
-          url: data.urls.full,
-          photographer: data.user.name,
-          profile: data.user.links.html,
-        };
-      }
-      throw new Error("Invalid JSON from Worker");
-    })
-    .catch((err) => {
-      console.error("fetchSingleImage error:", err);
-      return null;
-    });
+
+  // 10b) Build the Worker URL with `count`
+  const workerURL = new URL(PROXY_URL);
+  workerURL.searchParams.set("keyword", keyword);
+  workerURL.searchParams.set("count", String(count));
+
+  try {
+    const res = await fetch(workerURL.toString());
+    if (!res.ok) throw new Error(`Worker returned ${res.status}`);
+    const data = await res.json();
+
+    // 10c) `data` should be an array if count > 1; fallback if it is a single object
+    const photoArray = Array.isArray(data) ? data : [data];
+
+    // 10d) Map to our minimal format, filtering out any invalid entries
+    const valid = photoArray
+      .filter(
+        (item) =>
+          item &&
+          item.urls &&
+          typeof item.urls.full === "string" &&
+          item.user &&
+          typeof item.user.name === "string" &&
+          item.user.links &&
+          typeof item.user.links.html === "string"
+      )
+      .map((item) => ({
+        url: item.urls.full,
+        photographer: item.user.name,
+        profile: item.user.links.html,
+      }));
+
+    return valid; // array of {url, photographer, profile}, length ≤ count
+  } catch (err) {
+    console.error("fetchBatchImages error:", err);
+    return []; // Return an empty array on failure
+  }
 }
 
-// 11. Prefetch a batch of Unsplash photos into localStorage (runs asynchronously)
-async function prefetchImageBatch() {
-  const promises = [];
-  for (let i = 0; i < BATCH_SIZE; i++) {
-    promises.push(fetchSingleImage());
-  }
-  const results = await Promise.all(promises);
+// ─────────────────────────────────────────────────────────────────────────────
+// 11) Refresh the image cache if needed.
+//     We decide to refresh when ANY of the following is true:
+//       • There is no existing timestamp (first run)
+//       • The timestamp is older than CACHE_REFRESH_INTERVAL (i.e. > 4h old)
+//       • The existing cache array has length < TARGET_CACHE_SIZE/2 (i.e. < 5 images remain)
+// ─────────────────────────────────────────────────────────────────────────────
+let isCacheRefreshInProgress = false;
 
-  // Filter out any nulls (failed fetches), keep only valid objects
-  const valid = results.filter((item) => item && item.url);
-  if (valid.length > 0) {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(valid));
+async function refreshImageCacheIfNeeded() {
+  // 11a) If another refresh is already happening, skip
+  if (isCacheRefreshInProgress) {
+    console.log("[Cache] Refresh already in progress, skipping.");
+    return;
+  }
+
+  // 11b) Read the stored timestamp (ms since epoch)
+  const rawTs = localStorage.getItem(CACHE_TIMESTAMP_KEY);
+  const ts = rawTs ? parseInt(rawTs, 10) : 0;
+
+  // 11c) Read the stored cache array length
+  let cacheArray = [];
+  const rawCache = localStorage.getItem(CACHE_KEY);
+  try {
+    cacheArray = rawCache ? JSON.parse(rawCache) : [];
+  } catch {
+    cacheArray = [];
+  }
+
+  // 11d) Determine if we need to refresh
+  const age = isNaN(ts) ? Infinity : Date.now() - ts;
+  const needsTimeRefresh = isNaN(ts) || age > CACHE_REFRESH_INTERVAL;
+  const needsSizeRefresh =
+    !Array.isArray(cacheArray) || cacheArray.length < TARGET_CACHE_SIZE / 2;
+
+  if (!needsTimeRefresh && !needsSizeRefresh) {
+    console.log(
+      `[Cache] Fresh (age ${Math.round(age / 60000)}m, count ${
+        cacheArray.length
+      }) → no refresh.`
+    );
+    return;
+  }
+
+  // 11e) Mark that we are now refreshing
+  isCacheRefreshInProgress = true;
+  console.log(
+    `[Cache] Refreshing (age: ${
+      isNaN(ts) ? "none" : Math.round(age / 60000) + "m"
+    }, count: ${cacheArray.length}).`
+  );
+
+  try {
+    // 11f) Fetch a new batch of TARGET_CACHE_SIZE images
+    const newBatch = await fetchBatchImages(TARGET_CACHE_SIZE);
+
+    if (newBatch.length > 0) {
+      // 11g) Overwrite cache with these newly fetched images
+      localStorage.setItem(CACHE_KEY, JSON.stringify(newBatch));
+      localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
+      console.log(
+        `[Cache] Stored ${
+          newBatch.length
+        } new images at ${new Date().toLocaleTimeString()}.`
+      );
+    } else {
+      // 11h) If the fetch failed to return anything, update timestamp anyway
+      console.warn(
+        "[Cache] No valid images fetched; storing only timestamp to delay next attempt."
+      );
+      localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
+    }
+  } catch (err) {
+    console.error("[Cache] refreshImageCacheIfNeeded error:", err);
+    // Update timestamp even on error, so we don’t hammer the API
     localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
+  } finally {
+    isCacheRefreshInProgress = false;
   }
-  return valid;
 }
 
-// 12. Synchronous check: get ONE background from cache if available & fresh
-//    If no cache exists or TTL expired or array empty, return null
+// ─────────────────────────────────────────────────────────────────────────────
+// 12) Synchronously retrieve one image from the cache (if valid & fresh)
+//     Returns an object { url, photographer, profile } or null if none exist.
+// ─────────────────────────────────────────────────────────────────────────────
 function getBackgroundFromCacheSync() {
   const rawCache = localStorage.getItem(CACHE_KEY);
   const rawTs = localStorage.getItem(CACHE_TIMESTAMP_KEY);
+
   if (!rawCache || !rawTs) {
-    return null; // No cache at all
+    console.log("[Cache] Miss (no cache or no timestamp).");
+    return null;
   }
 
   const ts = parseInt(rawTs, 10);
   if (isNaN(ts) || Date.now() - ts > CACHE_TTL) {
-    return null; // Cache expired
+    console.log("[Cache] Miss (stale cache).");
+    // Purge stale cache
+    localStorage.removeItem(CACHE_KEY);
+    localStorage.removeItem(CACHE_TIMESTAMP_KEY);
+    return null;
   }
 
   let cacheArray;
   try {
     cacheArray = JSON.parse(rawCache);
   } catch {
+    console.warn("[Cache] Miss (failed to parse JSON).");
     cacheArray = [];
   }
+
   if (!Array.isArray(cacheArray) || cacheArray.length === 0) {
-    return null; // Nothing to pop
+    console.log("[Cache] Miss (cache array empty).");
+    return null;
   }
 
-  // Pop one entry off the front
+  // Pop one entry from the front
   const entry = cacheArray.shift();
   localStorage.setItem(CACHE_KEY, JSON.stringify(cacheArray));
+  console.log(`[Cache] Hit (popped one; ${cacheArray.length} remain).`);
   return entry; // { url, photographer, profile }
 }
 
-// 13. MAIN LOGIC: ALWAYS set a preloaded image immediately
+// ─────────────────────────────────────────────────────────────────────────────
+// 13) MAIN IIFE (Immediate Function) that runs as soon as newtab.js is parsed.
+//
+//     A) Immediately _paint_ a randomly chosen preloaded image (no condition).
+//     B) Then attempt a synchronous cache lookup. If a cached URL exists, swap it in.
+//     C) Afterwards (async), call refreshImageCacheIfNeeded() to fetch a new batch if required.
+//     D) Finally, fetch & display a random quote (async).
+//
+//     At no point does the user see a blank or gray background—
+//     the preloaded image is always on screen until a cached or fresh Unsplash image is swapped in.
+// ─────────────────────────────────────────────────────────────────────────────
 (function initializeTab() {
-  // 13a. Instantly pick one of the 3 bundled images
+  // ──── A) Immediately paint a random preloaded image ─────────────────────────
   const randIdx = Math.floor(Math.random() * PRELOADED_IMAGES.length);
   const fallbackUrl = PRELOADED_IMAGES[randIdx];
   bgDiv.style.backgroundImage = `url("${fallbackUrl}")`;
-  // No photographer credit for a bundled image:
-  unsplashCreditEl.textContent = "";
+  unsplashCreditEl.textContent = ""; // No credit for a bundled image
+  console.log("[Init] Painted preloaded image.");
 
-  // 13b. Now fetch & display a quote (does not block the preloaded background)
+  // ──── B) Synchronous cache lookup ────────────────────────────────────────
+  const bgEntry = getBackgroundFromCacheSync();
+  if (bgEntry && bgEntry.url) {
+    // If we got a valid cached object, swap in the Unsplash image _immediately_:
+    bgDiv.style.backgroundImage = `url("${bgEntry.url}")`;
+    unsplashCreditEl.textContent = `Photo by ${bgEntry.photographer} on Unsplash`;
+    unsplashCreditEl.href =
+      bgEntry.profile + "?utm_source=spark-quotes-daily&utm_medium=referral";
+  }
+
+  // ──── C) Asynchronously refresh the cache if needed ─────────────────────────
+  (async function refreshIfRequired() {
+    const rawTs = localStorage.getItem(CACHE_TIMESTAMP_KEY);
+    const ts = rawTs ? parseInt(rawTs, 10) : 0;
+    let cacheArray = [];
+    try {
+      cacheArray = JSON.parse(localStorage.getItem(CACHE_KEY) || "[]");
+    } catch {
+      cacheArray = [];
+    }
+
+    const age = isNaN(ts) ? Infinity : Date.now() - ts;
+    const needsTimeRefresh = isNaN(ts) || age > CACHE_REFRESH_INTERVAL;
+    const needsSizeRefresh =
+      !Array.isArray(cacheArray) || cacheArray.length < TARGET_CACHE_SIZE / 2;
+
+    if (needsTimeRefresh || needsSizeRefresh) {
+      console.log(
+        "[Cache Check] Refresh conditions met. Fetching new batch..."
+      );
+      await prefetchImageBatch();
+    } else {
+      console.log(
+        `[Cache Check] No refresh needed—age ${Math.round(
+          age / 60000
+        )}m, count ${cacheArray.length}.`
+      );
+    }
+  })().catch((err) => {
+    console.error("[Cache Refresh Error]", err);
+  });
+
+  // ──── D) Fetch & display a random quote (asynchronously) ─────────────────────
   fetch(QUOTES_URL)
     .then((res) => {
       if (!res.ok) throw new Error("Failed to load quotes.json");
       return res.json();
     })
-    .then(async (quotesArray) => {
+    .then((quotesArray) => {
       if (!Array.isArray(quotesArray) || quotesArray.length === 0) {
         throw new Error("No quotes found.");
       }
-
-      // 13c. Display a random quote
       const { text, author } = pickRandomQuote(quotesArray);
       quoteTextEl.textContent = `"${text}"`;
       quoteAuthorEl.textContent = author ? `— ${author}` : "— Anon";
-
-      // 13d. Check if we have a cached Unsplash entry
-      const bgEntry = getBackgroundFromCacheSync();
-      if (bgEntry && bgEntry.url) {
-        // 13e. If yes, swap in that Unsplash image immediately
-        bgDiv.style.backgroundImage = `url("${bgEntry.url}")`;
-        unsplashCreditEl.textContent = `Photo by ${bgEntry.photographer} on Unsplash`;
-        unsplashCreditEl.href =
-          bgEntry.profile +
-          "?utm_source=spark-quotes-daily&utm_medium=referral";
-      } else {
-        // 13f. If no cache, kick off a batch prefetch (but do NOT await it here)
-        prefetchImageBatch();
-        // We leave the preloaded image on screen; the next tab or after prefetch, a new tab will use a cached entry.
-      }
     })
     .catch((err) => {
-      console.error(err);
-      // If quotes.json fails entirely, show fallback text
-      if (!quoteTextEl.textContent) {
+      console.error("[Quote Error]", err);
+      if (!quoteTextEl.textContent.trim()) {
         quoteTextEl.textContent = "An inspiring day awaits.";
         quoteAuthorEl.textContent = "";
       }
-      // And leave the preloaded image we already set
-      unsplashCreditEl.textContent = "";
     });
 })();
