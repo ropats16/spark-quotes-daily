@@ -5,7 +5,7 @@
   "description": "Every new tab shows a daily inspirational quote over a stunning 4K background.",
   "icons": {
     "48": "icons/icon-48.png",
-    "120": "icons/icon-120.png"
+    "128": "icons/icon-128.png"
   },
   "permissions": ["storage"],
   "host_permissions": [
