@@ -1,16 +1,14 @@
 {
   "manifest_version": 3,
   "name": "spark-quotes-daily",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Every new tab shows a daily inspirational quote over a stunning 4K background.",
   "icons": {
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "permissions": ["storage"],
   "host_permissions": [
-    "https://raw.githubusercontent.com/ropats16/spark-quotes-daily/main/quotes.json",
-    "https://source.unsplash.com/*"
+    "https://sqd-unsplash-proxy.sqd-unsplash-proxy.workers.dev/*"
   ],
   "chrome_url_overrides": {
     "newtab": "newtab.html"
