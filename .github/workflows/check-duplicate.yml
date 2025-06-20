@@ -1,58 +1,68 @@
 name: "Quote Duplicates Linter"
 
-# Run in the context of the base repo, with write permissions
 on:
   pull_request_target:
     types: [opened, reopened, synchronize]
     paths:
-      - "quotes.json"
+      - 'quotes.json'
 
 permissions:
-  issues: write # allow us to post comments
-  pull-requests: write
+  issues: write
 
 jobs:
   comment-duplicates:
     runs-on: ubuntu-latest
+
     steps:
-      # 1) Checkout the PR’s HEAD (not the workflow’s own ref)
       - name: Checkout PR code
         uses: actions/checkout@v3
         with:
-          # fetch the contributor’s branch
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 2) Node.js setup
-      - uses: actions/setup-node@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
         with:
           node-version: 18
 
       - name: Install dependencies
         run: npm ci
 
-      # 3) Run duplicate‐check script
       - name: Check for duplicate quotes
         id: dupes
-        continue-on-error: true
         run: |
-          OUTPUT=$(node scripts/check-duplicates.js)
+          set +e
+          OUTPUT=$(node scripts/check-duplicates.js 2>&1)
           echo "$OUTPUT"
           echo "::set-output name=result::$OUTPUT"
 
-      # 4) Comment on PR if duplicates found
       - name: Comment on PR with duplicates
-        if: steps.dupes.outputs.result != '::no-duplicates::'
+        if: contains( steps.dupes.outputs.result, '::duplicate-quotes-found::' )
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const result = `\`\`\`\n${{ steps.dupes.outputs.result }}\n\`\`\``;
-            const body = `⚠️ Duplicate quotes detected in \`quotes.json\`:\n${result}\nPlease remove or reword them before merging.`;
+            const raw = `${{ steps.dupes.outputs.result }}`;
+            const dupList = raw.split('::duplicate-quotes-found::')[1].trim();
+            const body = `
+⚠️ Duplicate quotes detected in \`quotes.json\`:
+
+\`\`\`
+${dupList}
+\`\`\`
+
+Please remove or reword them before merging.
+`;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.pull_request.number,
               body
             });
+
+      - name: Fail on duplicates
+        if: contains( steps.dupes.outputs.result, '::duplicate-quotes-found::' )
+        run: |
+          echo "::error::Duplicate quotes found—see comment above."
+          exit 1
