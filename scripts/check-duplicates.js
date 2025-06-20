@@ -11,6 +11,7 @@ const quotes = JSON.parse(
 const seen = new Set();
 console.log("testing")
 console.log("one more testing given permission to act on other branches as well")
+console.log("god dam not as easy as i thought but made some fixes")
 const dups = new Set();
 
 quotes.forEach((text) => {
