@@ -10,6 +10,7 @@ const quotes = JSON.parse(
 // Detect exact duplicates
 const seen = new Set();
 console.log("testing")
+console.log("one more testing given permission to act on other branches as well")
 const dups = new Set();
 
 quotes.forEach((text) => {
