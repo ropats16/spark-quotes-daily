@@ -1,61 +1,71 @@
-name: "Quote Duplicates Linter"
+name: Quote Duplicates Linter
 
 on:
   pull_request_target:
-    types: [opened, reopened, synchronize]
+    # Only run when quotes.json changes
     paths:
       - "quotes.json"
 
 permissions:
-  issues: write
+  contents: read       # for checkout
+  issues: write        # to post comments
 
 jobs:
-  comment-duplicates:
+  check-duplicates:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout PR code
+      # 1️⃣ Checkout the PR’s head so we lint the contributor’s changes
+      - name: Checkout code
         uses: actions/checkout@v3
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.ref }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
+      # 2️⃣ Install Node.js
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
           node-version: "18"
 
+      # 3️⃣ Install any deps your script needs
       - name: Install dependencies
         run: npm ci
 
-      - name: Check for duplicate quotes
+      # 4️⃣ Run your duplicate-checker (capture its output—even on error)
+      - name: Run duplicate check
         id: dupes
         continue-on-error: true
         run: |
+          set +e
           OUTPUT=$(node scripts/check-duplicates.js 2>&1)
           echo "$OUTPUT"
-          echo "::set-output name=result::$OUTPUT"
+          # Write the full OUTPUT to the `result` output variable
+          echo "result<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$OUTPUT"       >> "$GITHUB_OUTPUT"
+          echo "EOF"           >> "$GITHUB_OUTPUT"
 
+      # 5️⃣ If we found duplicates, post a comment on the PR
       - name: Comment on PR with duplicates
-        if: contains(steps.dupes.outputs.result, '::duplicate-quotes-found::')
+        if: contains( steps.dupes.outputs.result, '::duplicate-quotes-found::' )
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const raw = `${{ steps.dupes.outputs.result }}`;
-            const parts = raw.split('::duplicate-quotes-found::');
-            const dupText = parts.length > 1 ? parts[1].trim() : '–';
-            const body = `⚠️ Duplicate quotes detected in \`quotes.json\`:\n\n\`\`\`\n${dupText}\n\`\`\`\n\nPlease remove or reword them before merging.`;
+            // Grab the raw output from the previous step
+            const raw = `\${{ steps.dupes.outputs.result }}`;
+            // Everything after our marker is the list of dupes
+            const dupText = raw.split('::duplicate-quotes-found::')[1]?.trim() || '';
+            const body = '⚠️ Duplicate quotes detected in `quotes.json`:\n```' + dupText + '```\nPlease remove or reword them before merging.';
             await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
+              owner:         context.repo.owner,
+              repo:          context.repo.repo,
+              issue_number:  context.payload.pull_request.number,
               body
             });
 
+      # 6️⃣ Finally, fail the job so the PR shows 🔴 until fixed
       - name: Fail on duplicates
-        if: contains(steps.dupes.outputs.result, '::duplicate-quotes-found::')
+        if: contains( steps.dupes.outputs.result, '::duplicate-quotes-found::' )
         run: |
           echo "::error::Duplicate quotes found—see comment above."
           exit 1
