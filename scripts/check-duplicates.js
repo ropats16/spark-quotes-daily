@@ -9,6 +9,7 @@ const quotes = JSON.parse(
 
 // Detect exact duplicates
 const seen = new Set();
+console.log("testing")
 const dups = new Set();
 
 quotes.forEach((text) => {
