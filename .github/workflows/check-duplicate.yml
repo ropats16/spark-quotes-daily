@@ -7,8 +7,8 @@ on:
       - "quotes.json"
 
 permissions:
-  contents: read       # for checkout
-  issues: write        # to post comments
+  contents: read # for checkout
+  issues: write # to post comments
 
 jobs:
   check-duplicates:
