@@ -1,28 +1,38 @@
 name: "Quote Duplicates Linter"
 
+# Run in the context of the base repo, with write permissions
 on:
-  pull_request:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
     paths:
       - "quotes.json"
+
+permissions:
+  issues: write # allow us to post comments
+  pull-requests: write
 
 jobs:
   comment-duplicates:
     runs-on: ubuntu-latest
-
     steps:
-      # 1) Grab your code
-      - uses: actions/checkout@v3
+      # 1) Checkout the PR’s HEAD (not the workflow’s own ref)
+      - name: Checkout PR code
+        uses: actions/checkout@v3
+        with:
+          # fetch the contributor’s branch
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 2) Set up Node.js
+      # 2) Node.js setup
       - uses: actions/setup-node@v3
         with:
           node-version: 18
 
-      # 3) Install dependencies (none extra for this script)
-      - name: NPM Install
+      - name: Install dependencies
         run: npm ci
 
-      # 4) Run the duplicate-check script, but don’t fail the job
+      # 3) Run duplicate‐check script
       - name: Check for duplicate quotes
         id: dupes
         continue-on-error: true
@@ -31,7 +41,7 @@ jobs:
           echo "$OUTPUT"
           echo "::set-output name=result::$OUTPUT"
 
-      # 5) If duplicates were found, post a comment on the PR
+      # 4) Comment on PR if duplicates found
       - name: Comment on PR with duplicates
         if: steps.dupes.outputs.result != '::no-duplicates::'
         uses: actions/github-script@v6
@@ -39,10 +49,10 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const result = `\`\`\`\n${{ steps.dupes.outputs.result }}\n\`\`\``;
-            const body = `⚠️ I found duplicate quotes in \`quotes.json\`:\n${result}\nPlease remove or reword them before merging.`;
+            const body = `⚠️ Duplicate quotes detected in \`quotes.json\`:\n${result}\nPlease remove or reword them before merging.`;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: context.payload.pull_request.number,
               body
             });
