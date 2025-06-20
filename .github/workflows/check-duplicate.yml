@@ -4,7 +4,7 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize]
     paths:
-      - 'quotes.json'
+      - "quotes.json"
 
 permissions:
   issues: write
@@ -18,21 +18,21 @@ jobs:
         uses: actions/checkout@v3
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref:        ${{ github.event.pull_request.head.ref }}
-          token:      ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: "18"
 
       - name: Install dependencies
         run: npm ci
 
       - name: Check for duplicate quotes
         id: dupes
+        continue-on-error: true
         run: |
-          set +e
           OUTPUT=$(node scripts/check-duplicates.js 2>&1)
           echo "$OUTPUT"
           echo "::set-output name=result::$OUTPUT"
@@ -46,15 +46,7 @@ jobs:
             const raw = `${{ steps.dupes.outputs.result }}`;
             const parts = raw.split('::duplicate-quotes-found::');
             const dupText = parts.length > 1 ? parts[1].trim() : '–';
-            const body = `
-⚠️ Duplicate quotes detected in \`quotes.json\`:
-
-\`\`\`
-${dupText}
-\`\`\`
-
-Please remove or reword them before merging.
-`;
+            const body = `⚠️ Duplicate quotes detected in \`quotes.json\`:\n\n\`\`\`\n${dupText}\n\`\`\`\n\nPlease remove or reword them before merging.`;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
