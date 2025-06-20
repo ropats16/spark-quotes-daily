@@ -1,0 +1,48 @@
+name: "Quote Duplicates Linter"
+
+on:
+  pull_request:
+    paths:
+      - "quotes.json"
+
+jobs:
+  comment-duplicates:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1) Grab your code
+      - uses: actions/checkout@v3
+
+      # 2) Set up Node.js
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      # 3) Install dependencies (none extra for this script)
+      - name: NPM Install
+        run: npm ci
+
+      # 4) Run the duplicate-check script, but don’t fail the job
+      - name: Check for duplicate quotes
+        id: dupes
+        continue-on-error: true
+        run: |
+          OUTPUT=$(node scripts/check-duplicates.js)
+          echo "$OUTPUT"
+          echo "::set-output name=result::$OUTPUT"
+
+      # 5) If duplicates were found, post a comment on the PR
+      - name: Comment on PR with duplicates
+        if: steps.dupes.outputs.result != '::no-duplicates::'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const result = `\`\`\`\n${{ steps.dupes.outputs.result }}\n\`\`\``;
+            const body = `⚠️ I found duplicate quotes in \`quotes.json\`:\n${result}\nPlease remove or reword them before merging.`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
