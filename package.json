@@ -1,0 +1,12 @@
+{
+  "name": "spark-quotes-daily",
+  "version": "1.0.0",
+  "description": "**“Spark Quotes Daily”** is a Chrome New-Tab extension that shows an inspiring adventure-and-freedom quote against a beautiful background each time you open a new tab.",
+  "main": "newtab.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
