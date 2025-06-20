@@ -18,8 +18,8 @@ jobs:
         uses: actions/checkout@v3
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.ref }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ref:        ${{ github.event.pull_request.head.ref }}
+          token:      ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
@@ -43,20 +43,21 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const raw = `${{ steps.dupes.outputs.result }}`;
-            const dupList = raw.split('::duplicate-quotes-found::')[1].trim();
+            const raw    = `${{ steps.dupes.outputs.result }}`;
+            const parts  = raw.split('::duplicate-quotes-found::');
+            const dupText= parts.length > 1 ? parts[1].trim() : '–';
             const body = `
 ⚠️ Duplicate quotes detected in \`quotes.json\`:
 
 \`\`\`
-${dupList}
+${dupText}
 \`\`\`
 
 Please remove or reword them before merging.
 `;
             await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+              owner:       context.repo.owner,
+              repo:        context.repo.repo,
               issue_number: context.payload.pull_request.number,
               body
             });
